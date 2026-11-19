@@ -1,0 +1,44 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run headless (default)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/app",
+      "env": {
+        "NDE_DB_PATH": "${workspaceFolder}/db/nde.db",
+        "NDE_LOG_FILE": "${workspaceFolder}/db/nde.log",
+        "NDE_LOG_FORMAT": "text"
+      },
+      "buildFlags": "-tags=gui=false"
+    },
+    {
+      "name": "Run GUI (-tags=gui)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/app",
+      "buildFlags": "-tags=gui",
+      "env": {
+        "NDE_DB_PATH": "${workspaceFolder}/db/nde.db",
+        "NDE_LOG_FORMAT": "text"
+      }
+    },
+    {
+      "name": "Test current file",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}"
+    },
+    {
+      "name": "Test all (backend)",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/internal/..."
+    }
+  ]
+}

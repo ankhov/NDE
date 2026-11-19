@@ -1,0 +1,48 @@
+# ===== Sandbox / tooling (not part of the NDE project) =====
+skills/
+.sdk/
+download/
+upload/
+
+# ===== Go =====
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+go.work
+go.work.sum
+vendor/
+
+# ===== Build / dist =====
+build/
+dist/
+bin/
+outputs/
+
+# ===== Frontend =====
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/node_modules/
+
+# ===== Database =====
+*.db
+*.db-wal
+*.db-shm
+db/
+
+# ===== Editor / OS =====
+.idea/
+.DS_Store
+Thumbs.db
+
+# ===== Env =====
+.env
+.env.local
+.env.*.local
+
+# Локальный исполняемый файл
+/app
