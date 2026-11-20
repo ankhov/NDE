@@ -12,6 +12,7 @@
  */
 import { Call, Events } from '@wailsio/runtime'
 import type {
+  CollectorStatus,
   HealthStatus,
   Measurement,
   MeasurementStats,
@@ -52,6 +53,10 @@ export const nde = {
     Start: () => invoke<void>('MonitoringService.Start'),
     Stop: () => invoke<void>('MonitoringService.Stop'),
     IsActive: () => invoke<boolean>('MonitoringService.IsActive'),
+  },
+  Collector: {
+    Status: () => invoke<CollectorStatus[]>('CollectorService.Status'),
+    ReadyTypes: () => invoke<string[]>('CollectorService.ReadyTypes'),
   },
 } as const
 

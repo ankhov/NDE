@@ -30,6 +30,18 @@ export function useMonitoringStatus() {
   })
 }
 
+/**
+ * Collector availability per measurement type (Phase 3). Collector registration
+ * is static for a running app, so the result is cached for a long time.
+ */
+export function useCollectorStatus() {
+  return useQuery({
+    queryKey: ['collectors', 'status'],
+    queryFn: () => nde.Collector.Status(),
+    staleTime: Infinity,
+  })
+}
+
 /** All configured targets. */
 export function useTargets() {
   return useQuery({
