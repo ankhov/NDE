@@ -55,6 +55,10 @@ const (
 	MetaAnswer      = "answer"      // first DNS answer (string)
 	MetaPort        = "port"        // TCP/UDP port contacted
 	MetaFailureMS   = "failure_ms"  // wall time elapsed before a failure
+	MetaHopCount    = "hop_count"   // traceroute: number of hops discovered
+	MetaHops        = "hops"        // traceroute: hop list ([]map[string]any)
+	MetaFinalHop    = "final_hop"   // traceroute: IP of the last responding hop
+	MetaReachedDest = "reached_dest" // traceroute: bool, destination answered
 )
 
 // Status classifies a measurement for the UI and for metric_aggregates.status
