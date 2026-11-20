@@ -53,13 +53,13 @@ func runApp() error {
 	app := core.New(cfg, core.WithLogger(log))
 
 	// Wire the monitoring pipeline (collectors + scheduler + seed) before the
-	// GUI is constructed so the services bind to a live scheduler.
-	sched, err := wireMonitoring(context.Background(), cfg, log, db, app)
+	// GUI is constructed so the services bind to a live scheduler and registry.
+	sched, reg, err := wireMonitoring(context.Background(), cfg, log, db, app)
 	if err != nil {
 		_ = db.Close()
 		return fmt.Errorf("wire monitoring: %w", err)
 	}
-	svcs := newServices(buildVersion, db, sched, log)
+	svcs := newServices(buildVersion, db, sched, reg, log)
 
 	// Embedded Vite production assets (frontend/dist).
 	distFS, err := fs.Sub(frontend.Dist, "dist")
@@ -76,6 +76,7 @@ func runApp() error {
 			application.NewService(svcs.target),
 			application.NewService(svcs.measurement),
 			application.NewService(svcs.monitoring),
+			application.NewService(svcs.collector),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(distFS),

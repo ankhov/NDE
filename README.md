@@ -1,144 +1,238 @@
 # Network Diagnostics Engine (NDE)
 
-Desktop application for continuous monitoring, analysis and explainable
-diagnostics of network connection quality. Determines **which segment** of the
-network path is unstable, **which measurements** support that conclusion, and
-**how confident** the diagnostic hypothesis is.
+NDE is a desktop application for continuous network monitoring and
+explainable diagnostics. It runs scheduled checks against the hosts and
+services you care about, stores the results in a local SQLite database, and
+presents live latency, jitter and packet-loss trends in a dashboard — with the
+IP path to each target available on demand.
 
-> Спецификация: [`upload/SPEC.md`](upload/SPEC.md) v1.0.
-> Анализ и план Phase 1: [`docs/decisions/phase-1-plan.md`](docs/decisions/phase-1-plan.md).
-
----
-
-## Status
-
-| Phase | Scope | Status |
-|-------|-------|--------|
-| 1 — Foundation | Go/Wails/React/TS init, structure, SQLite, migrations, Application Core | ✅ Complete |
-| 2 — Networking | Discovery, ICMP/TCP/DNS/HTTP collectors, Scheduler | ⬜ Next |
-| 3 — Storage & Metrics | Unified model, repository, RTT/Jitter/PacketLoss, aggregation | ⬜ Not started |
-| 4 — Analytics | Baseline, EMA, MA, Z-score, anomaly detection | ⬜ Not started |
-| 5 — Diagnostics | Rule engine, evidence, confidence, reports | ⬜ Not started |
-| 6 — UI | Dashboard/Targets/Diagnostics/History/Network/Settings | ⬜ Not started |
-| 7 — Advanced | Traceroute, route comparison, notifications, export | ⬜ Not started |
-| 8 — Testing & Release | Unit/integration/scenario/perf, CI/CD, Windows build, docs | ⬜ Not started |
-
-Development follows SPEC §14: small verifiable steps, plan before each phase,
-no stub implementations, `context.Context` everywhere.
+The product is built as a single self-contained binary: a Go core does all the
+monitoring and storage, and a React + TypeScript UI runs inside an embedded
+desktop window. There is no server to deploy and no external database to
+operate.
 
 ---
 
-## Tech stack (SPEC §2 — unchanged)
+## Features
 
-- **Backend:** Go 1.27.4 (≥1.26), Wails v3.1.0, stdlib, `golang.org/x/net`,
-  `github.com/miekg/dns`, `github.com/shirou/gopsutil/v4`, `modernc.org/sqlite` (pure-Go, no CGO).
-- **Frontend:** React 18, TypeScript, Vite 6, Tailwind CSS v4, shadcn/ui, Recharts, Zustand, TanStack Query.
-- **Database:** SQLite (WAL, time-series indexes, migrations, batch writes, retention).
-- **Testing:** Go testing + testify; Vitest + React Testing Library + Playwright.
-- **CI/CD:** Git, GitHub, GitHub Actions.
+- **Five measurement types.** ICMP echo, TCP connect, DNS exchange, HTTP GET
+  and traceroute — all collected by the same scheduler and stored in one
+  unified model.
+- **Live dashboard.** Average / P95 / jitter RTT and packet-loss cards plus an
+  RTT timeline that updates in real time as measurements arrive.
+- **Targets management.** Add, edit, enable/disable and delete monitoring
+  targets; changes take effect immediately without restarting the app.
+- **Start / stop monitoring.** A single toggle pauses and resumes collection
+  without tearing down the runners behind it.
+- **Collector status.** A dedicated page reports which measurement types have a
+  live collector registered, so you always know what can run.
+- **Path discovery.** Traceroute measurements record every hop and the RTT to
+  the destination, so you can see where a path degrades.
+- **Local-first storage.** Every measurement is written to a local SQLite
+  database (WAL mode, time-series indexes, batched writes) — your data never
+  leaves the machine.
+- **SSRF protection.** User-supplied targets are screened against
+  private / loopback / link-local / reserved IP ranges both at configuration
+  time and at request time, so a hostname that resolves to an internal address
+  is never probed.
 
 ---
 
-## Repository layout (SPEC §13)
-
-See [`docs/decisions/phase-1-plan.md`](docs/decisions/phase-1-plan.md) §4 for the
-full annotated tree. Key parts:
+## How it works
 
 ```
-cmd/app/            entry point + Wails shell
+React UI  ⇄  Wails bindings (thin adapters)  ⇄  Application services
+                                                         ⇄  Domain modules
+                                                         ⇄  Storage (interfaces)
+```
+
+1. **Collectors** perform a single network check and return a unified
+   `Measurement`. A collector knows nothing about diagnostics or the UI — it
+   only measures.
+2. The **scheduler** runs one goroutine per enabled target at its configured
+   interval. Concurrency is bounded by a semaphore so many targets cannot
+   starve the machine. Pause/resume gates collection without restarting runners.
+3. Each measurement is **persisted** to SQLite in a batched transaction and
+   published on a **typed event bus**.
+4. The **Wails layer** subscribes to the event bus and re-emits events to the
+   frontend, so the dashboard and targets views refresh the instant new data
+   lands — no polling required for live updates.
+
+The domain never imports the UI framework, so the entire monitoring pipeline is
+testable headless.
+
+### Collectors
+
+| Type | What it measures | How |
+|------|------------------|-----|
+| ICMP | Round-trip latency to a host | OS `ping` (IcmpSendEcho on Windows; cap_net_raw / UDP-ICMP on Linux and macOS) |
+| TCP | Time to complete the TCP handshake to (host, port) | `net.Dialer` |
+| DNS | Round-trip of a DNS query to a resolver, with the response code | `miekg/dns` |
+| HTTP | Round-trip of an HTTP GET, with the status code | `net/http` (no redirect following) |
+| Traceroute | The IP path to a host, hop by hop | OS `traceroute` / `tracert` |
+
+Every collector resolves the target through the SSRF guard and contacts the
+screened IP directly, closing the window that would exist if the transport
+re-resolved the hostname itself. Target-side failures (timeout, refused,
+unreachable, SSRF block, …) are encoded as stable error codes on the
+measurement rather than raised as Go errors, so a down target is a normal
+result, not a collector fault.
+
+---
+
+## Tech stack
+
+- **Backend:** Go 1.27.4, Wails v3.1.0, the standard library,
+  `golang.org/x/net`, `github.com/miekg/dns`, `modernc.org/sqlite`
+  (pure-Go, no CGO).
+- **Frontend:** React 18, TypeScript, Vite 6, Tailwind CSS v4, shadcn/ui,
+  Recharts, Zustand, TanStack Query.
+- **Database:** SQLite (WAL mode, time-series indexes, embedded migrations,
+  batched writes).
+- **Testing:** Go testing + testify; Vitest.
+
+---
+
+## Repository layout
+
+```
+cmd/app/                    entry point: dispatch, headless and GUI runners
 internal/
-  core/             Application Core: lifecycle, module registry, shutdown
-  config/ errors/ events/ logging/   cross-cutting
-  measurement/ target/               unified models
-  network/{discovery,icmp,tcp,dns,http,traceroute}/
-  collector/ scheduler/
-  metrics/{calculator,aggregation}/
-  analytics/{baseline,anomaly,correlation}/
-  diagnostics/{engine,rules,evidence,confidence}/
-  storage/{sqlite,migrations}/       repository interfaces + sqlite impl + embedded SQL
-  reporting/
-frontend/src/{components,features/*,hooks,stores,types}/
-tests/{integration,scenarios,fixtures}/
-docs/{architecture,algorithms,decisions}/
+  core/                     Application Core: lifecycle, module registry, shutdown
+  config/ errors/ events/   cross-cutting: config, typed errors, event bus
+  logging/                  structured logging (slog)
+  measurement/ target/      unified measurement & target models, error codes
+  collector/                Collector interface, registry, TCP/DNS/HTTP/ICMP/traceroute
+  scheduler/                interval scheduler with bounded parallelism
+  storage/                  repository interfaces
+    sqlite/                 SQLite implementation + measurement/target repositories
+    migrations/             embedded SQL migrations
+  app/bindings/             thin Wails-bound services (App/Target/Measurement/Monitoring/Collector)
+  app/seed/                 default target seeding on first run
+frontend/src/
+  components/ layout, ui primitives
+  features/    dashboard, collectors, targets, diagnostics, history, network, settings
+  hooks/       TanStack Query hooks over the Wails client
+  lib/         typed Wails runtime client
+  stores/      Zustand app store
+  types/       DTO shapes mirrored from the Go bindings
+docs/{architecture,decisions}/   architecture overview and ADRs
 .github/workflows/  .vscode/  scripts/
 ```
 
 ---
 
-## Development environment
+## Build from source
 
-The dev host is Linux; the build target is Windows 10/11 x64 (SPEC §9.4).
-The Go toolchain is installed inside the repo (gitignored) so the sandbox is
-self-contained — no system-wide install, no writes outside the project.
+The build target is Windows 10/11 x64, but the Go toolchain and tests run on
+any Linux/macOS host. The Windows build needs no C toolchain — every
+dependency (including SQLite and the WebView bindings) is pure-Go.
 
-```bash
-# One-time: install Go 1.27.4 into .sdk/go
-mkdir -p .sdk
-curl -fsSL -o /tmp/go.tgz https://go.dev/dl/go1.27.4.linux-amd64.tar.gz
-tar -xzf /tmp/go.tgz -C .sdk && rm /tmp/go.tgz
+### Prerequisites
 
-# Every shell: source the env helper (sets GOROOT/GOPATH/GOCACHE/PATH)
-source scripts/env.sh
-```
+- Go 1.27.4 or newer
+- Node.js 18+ and npm
 
-## Build & test
+### Backend
 
 ```bash
-source scripts/env.sh
-
-# Backend (headless default build)
 go build ./...
 go vet ./...
 go test ./...
+```
 
-# Frontend
-cd frontend && npm install && npm run typecheck && npm run test && npm run build
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run build      # type-checks (tsc) and bundles with Vite
+npm test           # Vitest
 ```
 
 ### Two build modes
 
-The binary has two entry points selected by build tag:
+The binary has two entry points, selected by a build tag:
 
 ```bash
-# Headless (default) — runs the Application Core until SIGINT/SIGTERM.
+# Headless — runs the monitoring core until SIGINT/SIGTERM.
 go build -o bin/nde ./cmd/app
 
-# GUI — Wails v3 desktop app with bound services + embedded frontend assets.
-# Build the frontend first so frontend/dist exists for the embed.
+# GUI — the desktop application with bound services and embedded frontend
+# assets. Build the frontend first so frontend/dist exists for the embed.
 (cd frontend && npm run build)
-go build -tags=gui -o bin/nde ./cmd/app
+go build -tags=gui -o bin/NDE ./cmd/app
 ```
 
-### Cross-compile a Windows binary (CGO-free)
-
-`modernc.org/sqlite`, `gopsutil/v4` and Wails v3 are all pure-Go on Windows,
-so the Windows build needs no C toolchain:
+### Cross-compile a Windows binary
 
 ```bash
 # Headless Windows binary
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o bin/nde.exe ./cmd/app
 
-# GUI Windows binary (verified: ~24.6 MB)
+# GUI Windows binary (~26 MB)
 (cd frontend && npm run build)
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags=gui -o bin/NDE.exe ./cmd/app
 ```
 
-> Note: `wails3 dev` (live GUI) requires a native WebView backend (WebView2 on
-> Windows, WebKitGTK on Linux). Backend logic, unit and integration tests run
-> fully on this Linux host; the GUI build is verified by cross-compiling to
-> Windows (above) and by CI.
+> The live GUI (`wails3 dev`) needs a native WebView backend (WebView2 on
+> Windows, WebKitGTK on Linux). Backend logic and tests run fully on any host;
+> the GUI binary is verified by cross-compiling to Windows.
 
 ---
 
-## Architectural decisions
+## Usage
 
-Recorded as ADRs under `docs/decisions/`. Headline decisions:
+Run the GUI binary (`NDE.exe` on Windows) to open the desktop application. On
+first launch NDE seeds a small set of safe external targets so the dashboard
+shows data immediately; use the **Targets** page to add your own. Press
+**Start monitoring** (or stop it) at any time — the toggle pauses and resumes
+collection without losing the configured target set.
 
-1. **Pure-Go SQLite (`modernc.org/sqlite`)** — no CGO, enables clean Windows cross-compilation.
-2. **Windows unprivileged ICMP** — use `IcmpSendEcho` syscall (no admin), TCP-connect RTT as always-available fallback.
-3. **Typed event bus** decouples analytics→diagnostics→UI; Wails layer subscribes and re-emits SPEC §8 events.
-4. **Domain isolated from Wails** — only `cmd/app` and `internal/app/bindings` import Wails; everything else is headless-testable.
-5. **Time stored as INTEGER Unix-ms UTC**; latency as ms; `metadata` as JSON text.
-6. **Gap-fixes to SPEC §6 schema**: `diagnostic_recommendations`, `anomaly_measurements`, `notifications`, `status` on `metric_aggregates`.
+The **Collectors** page shows which measurement types are ready to run. The
+**Dashboard** shows live statistics and the RTT timeline; **History** and the
+per-target timeline let you look back at recent measurements.
 
-See the plan doc for contradictions, missing requirements and the full risk register.
+---
+
+## Design decisions
+
+Recorded as ADRs under `docs/decisions/`. The headline choices:
+
+1. **Pure-Go SQLite (`modernc.org/sqlite`)** — no CGO, which makes clean
+   Windows cross-compilation possible from a single `go build`.
+2. **Unprivileged ICMP** — collectors delegate to the OS `ping` binary, which
+   uses `IcmpSendEcho` on Windows and the kernel ICMP facilities on Linux/macOS,
+   so echo checks never require administrator rights. TCP-connect RTT is always
+   available as a fallback.
+3. **Typed event bus** — analytics, diagnostics and the UI communicate through
+   a typed in-process bus; the Wails layer subscribes and re-emits to the
+   frontend. Producers stay decoupled from the UI framework.
+4. **Domain isolated from Wails** — only `cmd/app` and `internal/app/bindings`
+   import Wails. Everything else is headless-testable.
+5. **Time stored as INTEGER Unix-milliseconds UTC**; latency as milliseconds;
+   measurement `metadata` as JSON text — so the schema is portable and the
+   insufficient-data state is explicit (a NULL latency means "no value", never
+   a sentinel like 0 or -1).
+6. **Resolution-time SSRF screening** — targets are screened when configured
+   and again when each check resolves the hostname, blocking hostnames that
+   resolve to private or reserved addresses (including the cloud metadata
+   endpoint).
+
+---
+
+## Roadmap
+
+NDE's foundation, networking and storage layers are complete and in use. The
+following modules extend the product toward its full diagnostics vision and are
+under active development:
+
+- **Metrics aggregation** — rolling RTT / jitter / packet-loss aggregates and
+  baseline tracking.
+- **Anomaly detection** — EMA / moving-average / Z-score based spike and
+  degradation detection.
+- **Explainable diagnostics** — a rule engine that turns anomalies into
+  hypotheses about *which network segment* is at fault, each backed by
+  supporting evidence and a confidence score.
+- **Notifications** — threshold-based alerts with a dismissible history.
+- **Reporting & export** — summary reports and data export.

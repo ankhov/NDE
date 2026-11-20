@@ -130,3 +130,18 @@ export interface MeasurementStats {
   sampleCount: number
   activeTargets: number
 }
+
+// ---------------------------------------------------------------------------
+// Phase 3 — collector status (CollectorService.Status), mirrored from
+// internal/app/bindings/collector.go.
+// ---------------------------------------------------------------------------
+
+/** Availability of one measurement type's collector. */
+export interface CollectorStatus {
+  /** Measurement type: icmp / tcp / dns / http / traceroute. */
+  type: MeasurementType
+  /** Whether a collector is registered for this type. */
+  ready: boolean
+  /** Registered collector's name when ready, else ''. */
+  collectorName: string
+}

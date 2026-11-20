@@ -1,10 +1,11 @@
-// Package collector — default registry factory (SPEC §3.3).
+// Package collector — default registry factory.
 //
-// NewDefaultRegistry returns a Registry pre-populated with the TCP, DNS and
-// HTTP collectors. ICMP and traceroute land in Phase 3 (ICMP needs the
-// Windows unprivileged syscall, ADR-002; traceroute reuses ICMP + the route
-// tables) — so a target of those types has no collector yet and the scheduler
-// records a measurement with CodeUnsupported rather than skipping silently.
+// NewDefaultRegistry returns a Registry pre-populated with all five
+// collectors: TCP, DNS, HTTP, ICMP and traceroute. ICMP shells out to the OS
+// ping binary (IcmpSendEcho on Windows, cap_net_raw/UDP-ICMP on unix per
+// ADR-002); traceroute shells out to traceroute/tracert. A target of any of
+// the five measurement types now has a live collector, so the scheduler no
+// longer records CodeUnsupported for these types.
 package collector
 
 import "log/slog"
@@ -19,8 +20,10 @@ type DefaultOptions struct {
 	DNSProbeName string
 }
 
-// NewDefaultRegistry returns a Registry with the Phase 2 collectors
-// registered, all sharing the same AllowPrivate policy and a single logger.
+// NewDefaultRegistry returns a Registry with all five collectors registered,
+// all sharing the same AllowPrivate policy and a single logger. Phase 3 adds
+// the ICMP and traceroute collectors, completing the five-type collector set
+// (icmp/tcp/dns/http/traceroute).
 func NewDefaultRegistry(opts DefaultOptions, log *slog.Logger) Registry {
 	if log == nil {
 		log = slog.Default()
@@ -32,5 +35,7 @@ func NewDefaultRegistry(opts DefaultOptions, log *slog.Logger) Registry {
 		ProbeName:    opts.DNSProbeName,
 	}).WithLogger(log))
 	reg.Register(NewHTTP(HTTPOptions{AllowPrivate: opts.AllowPrivate}).WithLogger(log))
+	reg.Register(NewICMP(ICMPOptions{AllowPrivate: opts.AllowPrivate}).WithLogger(log))
+	reg.Register(NewTraceroute(TracerouteOptions{AllowPrivate: opts.AllowPrivate}).WithLogger(log))
 	return reg
 }

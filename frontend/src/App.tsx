@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { DashboardPage } from '@/features/dashboard'
+import { CollectorsPage } from '@/features/collectors'
 import { DiagnosticsPage } from '@/features/diagnostics'
 import { TargetsPage } from '@/features/targets'
 import { HistoryPage } from '@/features/history'
@@ -23,6 +24,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/collectors" element={<CollectorsPage />} />
           <Route path="/diagnostics" element={<DiagnosticsPage />} />
           <Route path="/targets" element={<TargetsPage />} />
           <Route path="/history" element={<HistoryPage />} />

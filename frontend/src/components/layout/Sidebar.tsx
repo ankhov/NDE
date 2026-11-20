@@ -7,6 +7,7 @@ import {
   Network,
   Settings,
   Gauge,
+  Radar,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
@@ -19,6 +20,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', icon: Activity },
+  { to: '/collectors', label: 'Collectors', icon: Radar },
   { to: '/diagnostics', label: 'Diagnostics', icon: Stethoscope },
   { to: '/targets', label: 'Targets', icon: Crosshair },
   { to: '/history', label: 'History', icon: History },
