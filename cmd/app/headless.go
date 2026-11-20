@@ -60,8 +60,10 @@ func runApp() error {
 	defer stop()
 
 	// Wire the monitoring pipeline (collectors + scheduler + seed) before
-	// Start so the scheduler is part of ordered module lifecycle.
-	sched, err := wireMonitoring(ctx, cfg, log, db, app)
+	// Start so the scheduler is part of ordered module lifecycle. The registry
+	// is not used by the headless entry point (no UI) but is returned so the
+	// signature matches the GUI wiring.
+	sched, _, err := wireMonitoring(ctx, cfg, log, db, app)
 	if err != nil {
 		return fmt.Errorf("wire monitoring: %w", err)
 	}

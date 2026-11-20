@@ -26,17 +26,17 @@ import (
 // scheduler as a core module, and seeds default targets on first run. It MUST
 // be called before core.App.Start so the scheduler participates in ordered
 // module startup/shutdown.
-func wireMonitoring(ctx context.Context, cfg config.Config, log *slog.Logger, db *sqlite.DB, app *core.App) (*scheduler.Scheduler, error) {
+func wireMonitoring(ctx context.Context, cfg config.Config, log *slog.Logger, db *sqlite.DB, app *core.App) (*scheduler.Scheduler, collector.Registry, error) {
 	reg := collector.NewDefaultRegistry(collector.DefaultOptions{}, log)
 	sched := scheduler.New(reg, db, app.Bus(), cfg.MaxParallelChecks, log)
 	app.Register(sched)
 
 	if n, err := seed.SeedDefaults(ctx, db, log); err != nil {
-		return nil, fmt.Errorf("seed defaults: %w", err)
+		return nil, nil, fmt.Errorf("seed defaults: %w", err)
 	} else if n > 0 {
 		log.Info("default targets seeded", "count", n)
 	}
-	return sched, nil
+	return sched, reg, nil
 }
 
 // loadTargetsIntoScheduler reads all targets from storage and schedules them.
@@ -66,15 +66,17 @@ type services struct {
 	target      *bindings.TargetService
 	measurement *bindings.MeasurementService
 	monitoring  *bindings.MonitoringService
+	collector   *bindings.CollectorService
 }
 
-// newServices constructs the UI-facing services bound to the live scheduler
-// and storage. Used only by the GUI entry point.
-func newServices(version string, db *sqlite.DB, sched *scheduler.Scheduler, log *slog.Logger) services {
+// newServices constructs the UI-facing services bound to the live scheduler,
+// registry and storage. Used only by the GUI entry point.
+func newServices(version string, db *sqlite.DB, sched *scheduler.Scheduler, reg collector.Registry, log *slog.Logger) services {
 	return services{
 		app:         bindings.NewAppService(version),
 		target:      bindings.NewTargetService(db, sched, log),
 		measurement: bindings.NewMeasurementService(db, db, log),
 		monitoring:  bindings.NewMonitoringService(sched),
+		collector:   bindings.NewCollectorService(reg),
 	}
 }
